@@ -5,6 +5,7 @@ on:
     paths-ignore:
       - '**.md'
       - 'LICENSE'
+      - '.github/workflows/android-build.yml'
   workflow_dispatch:
     inputs:
       doRelease:

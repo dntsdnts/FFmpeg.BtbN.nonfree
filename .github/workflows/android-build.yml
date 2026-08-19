@@ -3,15 +3,10 @@ name: Build FFmpeg Android
 on:
   workflow_dispatch:
   push:
-    paths:
-      - '.github/workflows/android-build.yml'
-      - 'addins/**'
-      - 'scripts.d/**'
-      - 'util/**'
-      - 'variants/androidarm64-*.sh'
-      - 'build.sh'
-      - 'generate.sh'
-      - 'download.sh'
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: read
@@ -37,8 +32,8 @@ jobs:
           BASE_IMAGE=local/ffmpeg-builds/base:latest
           TARGET_IMAGE=local/ffmpeg-builds/base-androidarm64:latest
           docker buildx build --load --tag "$BASE_IMAGE" images/base
-          docker buildx build --load --tag "$TARGET_IMAGE" -f - . <<'DOCKERFILE'
-          FROM local/ffmpeg-builds/base:latest
+          docker buildx build --load --build-context base="docker-image://${BASE_IMAGE}" --tag "$TARGET_IMAGE" -f - . <<'DOCKERFILE'
+          FROM base
 
           ARG NDK_VERSION=r27c
           ENV ANDROID_NDK_ROOT=/opt/android-ndk
