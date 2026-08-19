@@ -26,14 +26,21 @@ jobs:
         uses: actions/checkout@v4
       - name: Install buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
       - name: Build Android target image
         run: |
           set -euo pipefail
-          BASE_IMAGE=local/ffmpeg-builds/base:latest
-          TARGET_IMAGE=local/ffmpeg-builds/base-androidarm64:latest
-          docker buildx build --load --tag "$BASE_IMAGE" images/base
-          docker buildx build --load --build-context base="docker-image://${BASE_IMAGE}" --tag "$TARGET_IMAGE" -f - . <<'DOCKERFILE'
-          FROM base
+          docker run --detach --name android-registry --publish 5000:5000 registry:2
+          trap 'docker rm --force android-registry' EXIT
+          BASE_IMAGE=localhost:5000/ffmpeg-builds/base:latest
+          TARGET_IMAGE=localhost:5000/ffmpeg-builds/base-androidarm64:latest
+          until curl --fail --silent http://localhost:5000/v2/ >/dev/null; do
+            printf '.'
+          done
+          docker buildx build --push --tag "$BASE_IMAGE" images/base
+          docker buildx build --push --tag "$TARGET_IMAGE" -f - . <<'DOCKERFILE'
+          FROM localhost:5000/ffmpeg-builds/base:latest
 
           ARG NDK_VERSION=r27c
           ENV ANDROID_NDK_ROOT=/opt/android-ndk
@@ -86,7 +93,7 @@ jobs:
       - name: Build FFmpeg
         env:
           GITHUB_REPOSITORY: ffmpeg-builds
-          REGISTRY_OVERRIDE: local
+          REGISTRY_OVERRIDE: localhost:5000
           QUICKBUILD: '1'
         run: |
           set -euo pipefail
