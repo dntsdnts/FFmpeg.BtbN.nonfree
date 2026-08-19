@@ -1,0 +1,104 @@
+name: Build FFmpeg Android
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/android-build.yml'
+      - 'addins/**'
+      - 'scripts.d/**'
+      - 'util/**'
+      - 'variants/androidarm64-*.sh'
+      - 'build.sh'
+      - 'generate.sh'
+      - 'download.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  build_android:
+    name: Build Android arm64 ELF (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [gpl, lgpl, nonfree]
+    steps:
+      - name: Free Disk-Space
+        run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Android target image
+        run: |
+          set -euo pipefail
+          BASE_IMAGE=local/ffmpeg-builds/base:latest
+          TARGET_IMAGE=local/ffmpeg-builds/base-androidarm64:latest
+          docker buildx build --load --tag "$BASE_IMAGE" images/base
+          docker buildx build --load --tag "$TARGET_IMAGE" -f - . <<'DOCKERFILE'
+          FROM local/ffmpeg-builds/base:latest
+
+          ARG NDK_VERSION=r27c
+          ENV ANDROID_NDK_ROOT=/opt/android-ndk
+          ENV ANDROID_API=24
+          RUN wget -q "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip" -O /tmp/android-ndk.zip && \
+              unzip -q /tmp/android-ndk.zip -d /opt && \
+              mv "/opt/android-ndk-${NDK_VERSION}" "$ANDROID_NDK_ROOT" && \
+              rm /tmp/android-ndk.zip
+
+          ENV ANDROID_TOOLCHAIN=/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64
+          ENV ANDROID_SYSROOT=/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          ENV FFBUILD_TOOLCHAIN=aarch64-linux-android
+          ENV FFBUILD_CROSS_PREFIX=aarch64-linux-android-
+          ENV FFBUILD_RUST_TARGET=aarch64-linux-android
+          ENV FFBUILD_TARGET_FLAGS="--pkg-config=pkg-config --cross-prefix=aarch64-linux-android- --arch=aarch64 --cpu=armv8-a --target-os=android"
+          ENV FFBUILD_PREFIX=/opt/ffbuild
+          ENV FFBUILD_DESTDIR=/opt/ffdest
+          ENV FFBUILD_DESTPREFIX=/opt/ffdest/opt/ffbuild
+          ENV FFBUILD_CMAKE_TOOLCHAIN=/toolchain.cmake
+          ENV PKG_CONFIG=pkg-config
+          ENV PKG_CONFIG_LIBDIR=/opt/ffbuild/lib/pkgconfig:/opt/ffbuild/share/pkgconfig
+          ENV CC=aarch64-linux-android24-clang
+          ENV CXX=aarch64-linux-android24-clang++
+          ENV LD=ld.lld
+          ENV AR=llvm-ar
+          ENV RANLIB=llvm-ranlib
+          ENV NM=llvm-nm
+          ENV CFLAGS="--target=aarch64-linux-android24 --sysroot=/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot -O2 -fPIC -D_FORTIFY_SOURCE=2"
+          ENV CXXFLAGS="--target=aarch64-linux-android24 --sysroot=/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot -O2 -fPIC -D_FORTIFY_SOURCE=2"
+          ENV LDFLAGS="--target=aarch64-linux-android24 --sysroot=/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot -L/opt/ffbuild/lib -fuse-ld=lld"
+          ENV STAGE_CFLAGS="-fvisibility=hidden -fno-semantic-interposition"
+          ENV STAGE_CXXFLAGS="-fvisibility=hidden -fno-semantic-interposition"
+          ENV CARGO_BUILD_TARGET=aarch64-linux-android
+
+          RUN rustup target add aarch64-linux-android && \
+              for tool in ar ranlib nm; do ln -sf "$ANDROID_TOOLCHAIN/bin/llvm-$tool" "$ANDROID_TOOLCHAIN/bin/aarch64-linux-android-$tool"; done && \
+              ln -sf "$ANDROID_TOOLCHAIN/bin/ld.lld" "$ANDROID_TOOLCHAIN/bin/aarch64-linux-android-ld" && \
+              printf '%s\n' \
+                'set(CMAKE_SYSTEM_NAME Android)' \
+                'set(CMAKE_SYSTEM_VERSION 24)' \
+                'set(CMAKE_ANDROID_ARCH_ABI arm64-v8a)' \
+                'set(CMAKE_ANDROID_NDK /opt/android-ndk)' \
+                'set(CMAKE_ANDROID_STL_TYPE c++_static)' \
+                'set(CMAKE_FIND_ROOT_PATH /opt/ffbuild)' \
+                'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' \
+                'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' \
+                'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)' \
+                > /toolchain.cmake
+          DOCKERFILE
+      - name: Build FFmpeg
+        env:
+          GITHUB_REPOSITORY: ffmpeg-builds
+          REGISTRY_OVERRIDE: local
+          QUICKBUILD: '1'
+        run: |
+          set -euo pipefail
+          ./build.sh androidarm64 "${{ matrix.variant }}"
+      - name: Upload Android ELF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-androidarm64-${{ matrix.variant }}
+          path: artifacts/*
+          if-no-files-found: error
