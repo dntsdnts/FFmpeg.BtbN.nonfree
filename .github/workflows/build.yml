@@ -23,6 +23,10 @@ on:
 env:
   DOCKER_BUILDKIT: 1
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   pre_check:
     name: Pre Checks
@@ -80,6 +84,23 @@ jobs:
           IMG="${IMG// /-}"
           echo "name=ghcr.io/${IMG}" >> $GITHUB_OUTPUT
           echo "rawname=${IMG#*/}" >> $GITHUB_OUTPUT
+      - name: Verify GHCR permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_permissions="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/permissions/workflow" --jq '.default_workflow_permissions')"
+          if [[ "${repo_permissions}" != "write" ]]; then
+            echo "Repository Actions workflow permission is '${repo_permissions}', but 'write' is required."
+            exit 1
+          fi
+          org="${GITHUB_REPOSITORY%%/*}"
+          org_permissions="$(gh api "/orgs/${org}/actions/permissions/workflow" --jq '.default_workflow_permissions' 2>/dev/null || true)"
+          if [[ "${org_permissions}" == "read" ]]; then
+            echo "Organization Actions workflow permission is 'read'; it must allow 'write'."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --user "${GITHUB_ACTOR}:${GH_TOKEN}" https://ghcr.io/v2/ >/dev/null
       - name: Stop Commands
         run: T="$(echo -n ${{ github.token }} | sha256sum | head -c 64)" && echo -e "::add-mask::${T}\n::stop-commands::${T}"
       - name: Build target base image
@@ -175,6 +196,23 @@ jobs:
           echo "name=ghcr.io/${IMG}" >> $GITHUB_OUTPUT
           echo "rawname=${IMG#*/}" >> $GITHUB_OUTPUT
           echo "gh_repo=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+      - name: Verify GHCR permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_permissions="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/permissions/workflow" --jq '.default_workflow_permissions')"
+          if [[ "${repo_permissions}" != "write" ]]; then
+            echo "Repository Actions workflow permission is '${repo_permissions}', but 'write' is required."
+            exit 1
+          fi
+          org="${GITHUB_REPOSITORY%%/*}"
+          org_permissions="$(gh api "/orgs/${org}/actions/permissions/workflow" --jq '.default_workflow_permissions' 2>/dev/null || true)"
+          if [[ "${org_permissions}" == "read" ]]; then
+            echo "Organization Actions workflow permission is 'read'; it must allow 'write'."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --user "${GITHUB_ACTOR}:${GH_TOKEN}" https://ghcr.io/v2/ >/dev/null
       - name: Stop Commands
         run: T="$(echo -n ${{ github.token }} | sha256sum | head -c 64)" && echo -e "::add-mask::${T}\n::stop-commands::${T}"
       - name: Build target base image
@@ -265,6 +303,23 @@ jobs:
           IMG="${IMG// /-}"
           echo "name=ghcr.io/${IMG}" >> $GITHUB_OUTPUT
           echo "rawname=${IMG#*/}" >> $GITHUB_OUTPUT
+      - name: Verify GHCR permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_permissions="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/permissions/workflow" --jq '.default_workflow_permissions')"
+          if [[ "${repo_permissions}" != "write" ]]; then
+            echo "Repository Actions workflow permission is '${repo_permissions}', but 'write' is required."
+            exit 1
+          fi
+          org="${GITHUB_REPOSITORY%%/*}"
+          org_permissions="$(gh api "/orgs/${org}/actions/permissions/workflow" --jq '.default_workflow_permissions' 2>/dev/null || true)"
+          if [[ "${org_permissions}" == "read" ]]; then
+            echo "Organization Actions workflow permission is 'read'; it must allow 'write'."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --user "${GITHUB_ACTOR}:${GH_TOKEN}" https://ghcr.io/v2/ >/dev/null
       - name: Get download cache key
         id: dl_cache
         run: |
